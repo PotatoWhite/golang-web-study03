@@ -26,7 +26,7 @@ func TestIndex(t *testing.T) {
 	assert.Contains(string(respBody), "Hello")
 }
 
-func TestUsers(t *testing.T) {
+func TestUsers_withoutUsers(t *testing.T) {
 	assert := assert.New(t)
 
 	ts := httptest.NewServer(NewHandler())
@@ -36,7 +36,48 @@ func TestUsers(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, resp.StatusCode)
 	respBody, _ := ioutil.ReadAll(resp.Body)
-	assert.Contains(string(respBody), "Get UserInfo")
+	temp := string(respBody)
+	log.Println(temp)
+	assert.Contains(string(respBody), "No Users")
+}
+
+func TestUsers_withUsers(t *testing.T) {
+	assert := assert.New(t)
+
+	ts := httptest.NewServer(NewHandler())
+	defer ts.Close()
+
+	// create user #1
+	user01 := new(User)
+	user02 := new(User)
+
+	user01.FirstName = "potato"
+	user01.LastName = "white"
+	user01.Email = "potato@gmail.com"
+
+	user02.FirstName = "carrot"
+	user02.LastName = "black"
+	user02.Email = "carrot@example.com"
+
+	user01dto, _ := json.Marshal(user01)
+	user02dto, _ := json.Marshal(user01)
+
+	resUser01, err1 := http.Post(ts.URL+"/users", "application/json", bytes.NewReader(user01dto))
+	assert.NoError(err1)
+	assert.Equal(http.StatusCreated, resUser01.StatusCode)
+
+	resUser02, err2 := http.Post(ts.URL+"/users", "application/json", bytes.NewReader(user02dto))
+	assert.NoError(err2)
+	assert.Equal(http.StatusCreated, resUser02.StatusCode)
+
+	respAll, err := http.Get(ts.URL + "/users")
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, respAll.StatusCode)
+
+	users := []*User{}
+	err = json.NewDecoder(respAll.Body).Decode(&users)
+	assert.NoError(err)
+	assert.Equal(2, len(users))
 }
 
 func TestGetUser(t *testing.T) {
@@ -117,22 +158,42 @@ func TestDeleteUser(t *testing.T) {
 	assert.Contains(string(respBody), "Deleted User")
 }
 
-func TestUpdateUser(t *testing.T) {
+func TestUpdateUser_nonexist(t *testing.T) {
 	assert := assert.New(t)
 
 	ts := httptest.NewServer(NewHandler())
 	defer ts.Close()
 
 	// update fail
-	newRequest, err := http.NewRequest(http.MethodPut, ts.URL+"/users/1", strings.NewReader(`{"first_name":"potato", "last_name":"white", "email":"bravopotato@gmail.com"}`))
-	newRequest.Header.Add("Content-type", "application/json")
-	resp, _ := http.DefaultClient.Do(newRequest)
+	updateUser := new(UpdatedUser)
+
+	updateUser.FirstName = "carrot"
+	updateUser.UpdatedFirstName = true
+
+	updateUser.Email = "carrot@example.com"
+	updateUser.UpdatedEmail = true
+
+	updateUserReq, err := json.Marshal(updateUser)
+	assert.NoError(err)
+
+	req, err := http.NewRequest(http.MethodPut, ts.URL+"/users/1", bytes.NewReader(updateUserReq))
+	req.Header.Add("Content-type", "application/json")
+	resp, _ := http.DefaultClient.Do(req)
 	assert.Equal(http.StatusNoContent, resp.StatusCode)
 
+}
+
+func TestUpdateUser(t *testing.T) {
+	assert := assert.New(t)
+
+	ts := httptest.NewServer(NewHandler())
+	defer ts.Close()
+
 	// create a User
-	resp, err = http.Post(ts.URL+"/users", "application/json", strings.NewReader(`{"first_name":"potato", "last_name":"white", "email":"bravopotato@gmail.com"}`))
+	resp, err := http.Post(ts.URL+"/users", "application/json", strings.NewReader(`{"first_name":"potato", "last_name":"white", "email":"bravopotato@gmail.com"}`))
 	assert.NoError(err)
 	assert.Equal(http.StatusCreated, resp.StatusCode)
+
 	createdUser := new(User)
 	err = json.NewDecoder(resp.Body).Decode(createdUser)
 	assert.NoError(err)
@@ -142,18 +203,18 @@ func TestUpdateUser(t *testing.T) {
 	createdUser.FirstName = "carrot"
 	createdUser.Email = "carrot@example.com"
 
-	updateUser, err := json.Marshal(createdUser)
+	updateUserReq, err := json.Marshal(createdUser)
 	if err != nil {
 		return
 	}
 	// request update user
-	request, err := http.NewRequest(http.MethodPut, ts.URL+"/users/"+strconv.Itoa(createdUser.ID), bytes.NewReader(updateUser) )
+	request, err := http.NewRequest(http.MethodPut, ts.URL+"/users/"+strconv.Itoa(createdUser.ID), bytes.NewReader(updateUserReq))
 	resp, err = http.DefaultClient.Do(request)
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, resp.StatusCode)
 
 	// retrieve user to check
-	respRetrieve, error := http.Get(ts.URL+"/users/"+strconv.Itoa(createdUser.ID),)
+	respRetrieve, error := http.Get(ts.URL + "/users/" + strconv.Itoa(createdUser.ID))
 	assert.NoError(error)
 
 	retrievedUser := new(User)
@@ -162,5 +223,8 @@ func TestUpdateUser(t *testing.T) {
 	assert.NoError(err)
 	log.Println(string(raw))
 
-	assert.Equal(retrievedUser, createdUser)
+	assert.Equal("carrot", retrievedUser.FirstName)
+	assert.Equal("carrot@example.com", retrievedUser.Email)
+	assert.Equal("white", retrievedUser.LastName)
+
 }
